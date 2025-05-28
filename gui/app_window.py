@@ -1,73 +1,25 @@
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from tkinter import filedialog, messagebox
-import tkinter as tk
 from PIL import Image, ImageTk
+import tkinter as tk
 import os
-from openpyxl import load_workbook
+from utils.file_handling import is_valid_excel_file
+from config.sheet_definitions import REQUIRED_SHEETS
 
-REQUIRED_SHEETS = [
-    "APPENDIX C-C1 FAS VER template",
-    "ULC Coverpage",
-    "32.5 Response Times",
-    "32.6 Large Scale Network System",
-    "32.11",
-    "32.12",
-    "32.13",
-    "ULC Cover Page",
-    "Deficiency Summary",
-    "EXT only",
-    "ELU only",
-    "HOSES only",
-    "20.1 | Report",
-    "20.2 | Deficiencies",
-    "20.3 | Recommendations",
-    "21 | Documentation",
-    "29",
-    "30",
-    "31 Documentation (2)",
-    "22.1 | CU or Transp Insp",
-    "32 ControlUnit|Transponder (2)",
-    "22.2 | CU or Transp Test",
-    "22.3 + 22.4 | Voice & PS",
-    "32.7",
-    "32.8 Power Supply (2)",
-    "22.5 | Power Supply(s)",
-    "22.6 | Annunciator(s)",
-    "22.7 | Annun & Seq Disp",
-    "22.9 + 22.10 | Printer",
-    "23.1 Field Device Legend",
-    "23.2 Device Record",
-    "23.3 CircuitFaultTolerance",
-]
-
-ICON_PATH = "./assets/excel_icon.png"
-TILE_WIDTH = 110
-TILE_HEIGHT = 100
-TILES_PER_ROW = 4
-
-
-def is_valid_excel_file(path, required_sheets, threshold=0.7):
-    try:
-        wb = load_workbook(path, read_only=True)
-        present_sheets = set(wb.sheetnames)
-        required = set(required_sheets)
-        found_count = len(required & present_sheets)
-        return (found_count / len(required)) >= threshold
-    except Exception:
-        return False
+ICON_PATH = os.path.join("assets", "excel_icon.png")
 
 
 class V8MergerApp(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         self.title("V8 Merger")
-        self.geometry("600x600")
+        self.geometry("580x600")
         self.configure(bg="white")
         self.resizable(False, False)
 
         self.selected_files = []
         self.file_tiles = []
-        self.icon_image = None
+
         self.create_widgets()
 
     def create_widgets(self):
@@ -126,6 +78,20 @@ class V8MergerApp(TkinterDnD.Tk):
         )
         self.status_label.pack(pady=5)
 
+        self.merge_button = tk.Button(
+            self,
+            text="Start Merge",
+            command=self.start_merge,
+            font=("Segoe UI", 10),
+            width=25,
+            bg="#38c172",
+            fg="white",
+            relief="raised",
+            bd=2,
+        )
+        self.merge_button.pack(pady=(5, 5))
+        self.merge_button.pack_forget()
+
         self.clear_button = tk.Button(
             self,
             text="Clear All",
@@ -142,6 +108,8 @@ class V8MergerApp(TkinterDnD.Tk):
         if os.path.exists(ICON_PATH):
             img = Image.open(ICON_PATH).resize((32, 32))
             self.icon_image = ImageTk.PhotoImage(img)
+        else:
+            self.icon_image = None
 
     def browse_files(self):
         files = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx")])
@@ -152,6 +120,7 @@ class V8MergerApp(TkinterDnD.Tk):
         self.add_files(files)
 
     def add_files(self, files):
+        added_count = 0
         for f in files:
             cleaned = f.strip('"')
             if cleaned in self.selected_files:
@@ -159,103 +128,130 @@ class V8MergerApp(TkinterDnD.Tk):
                     text=f"File Error: Duplicate file '{os.path.basename(cleaned)}'",
                     fg="red",
                 )
-                return
+                continue
             elif cleaned.endswith(".xlsx"):
                 if is_valid_excel_file(cleaned, REQUIRED_SHEETS):
                     self.selected_files.append(cleaned)
                     self.add_file_tile(cleaned)
+                    added_count += 1
                 else:
                     self.status_label.config(
-                        text=(
-                            "File Error: Missing required sheets in "
-                            f"'{os.path.basename(cleaned)}'"
-                        ),
+                        text=f"File Error: Missing required sheets in "
+                        f"{os.path.basename(cleaned)}'",
                         fg="red",
                     )
-                    return
             else:
                 self.status_label.config(
-                    text=(
-                        "File Error: Not a valid Excel file → "
-                        f"{os.path.basename(cleaned)}"
-                    ),
+                    text=f"File Error: Not a valid Excel file → "
+                    f"{os.path.basename(cleaned)}",
                     fg="red",
                 )
-                return
 
-        self.status_label.config(
-            text=f"{len(self.selected_files)} files selected", fg="gray"
-        )
+        if added_count > 0:
+            self.status_label.config(
+                text=f"{len(self.selected_files)} files selected", fg="gray"
+            )
+            self.merge_button.pack()
 
     def add_file_tile(self, filepath):
-        idx = len(self.file_tiles)
-        row = idx // TILES_PER_ROW
-        col = idx % TILES_PER_ROW
-
-        tile = tk.Frame(
-            self.grid_frame,
-            width=TILE_WIDTH,
-            height=TILE_HEIGHT,
-            bg="#f1f3f5",
-            bd=1,
-            relief="solid",
+        frame = tk.Frame(
+            self.grid_frame, bg="white", bd=1, relief="solid", padx=6, pady=6
         )
-        tile.grid(row=row, column=col, padx=10, pady=10)
-        tile.pack_propagate(False)
+        frame.pack(side="top", pady=4)
 
         if self.icon_image:
-            icon_label = tk.Label(tile, image=self.icon_image, bg="#f1f3f5")
-            icon_label.pack(pady=(5, 0))
+            icon = tk.Label(frame, image=self.icon_image, bg="white")
+            icon.image = self.icon_image
+            icon.pack(side="left", padx=(0, 10))
 
         label = tk.Label(
-            tile,
-            text=os.path.basename(filepath),
-            bg="#f1f3f5",
-            wraplength=90,
-            justify="center",
-            font=("Segoe UI", 8),
+            frame, text=os.path.basename(filepath), bg="white", font=("Segoe UI", 9)
         )
-        label.pack(pady=(2, 2))
+        label.pack(side="left")
 
         remove_btn = tk.Button(
-            tile,
-            text="✕",
-            command=lambda: self.remove_tile(tile, filepath),
+            frame,
+            text="X",
+            command=lambda: self.remove_file(filepath, frame),
             font=("Segoe UI", 8),
             bg="#dc3545",
             fg="white",
-            bd=0,
-            padx=2,
-            pady=0,
+            relief="flat",
+            padx=5,
         )
-        remove_btn.place(relx=1.0, rely=0.0, anchor="ne")
+        remove_btn.pack(side="right", padx=5)
 
-        self.file_tiles.append(tile)
+        self.file_tiles.append(frame)
 
-    def remove_tile(self, tile, filepath):
-        tile.destroy()
-        self.selected_files = [f for f in self.selected_files if f != filepath]
-        self.file_tiles.remove(tile)
-        self.relayout_tiles()
-        self.status_label.config(
-            text=f"{len(self.selected_files)} files selected", fg="gray"
-        )
-
-    def relayout_tiles(self):
-        for idx, tile in enumerate(self.file_tiles):
-            row = idx // TILES_PER_ROW
-            col = idx % TILES_PER_ROW
-            tile.grid(row=row, column=col, padx=10, pady=10)
+    def remove_file(self, filepath, frame):
+        if filepath in self.selected_files:
+            self.selected_files.remove(filepath)
+            frame.destroy()
+            self.status_label.config(
+                text=f"{len(self.selected_files)} files selected", fg="gray"
+            )
+        if not self.selected_files:
+            self.merge_button.pack_forget()
 
     def clear_all_files(self):
         if messagebox.askyesno(
-            "Clear All Files", "Are you sure you want to remove all selected files?"
+            "Confirm", "Are you sure you want to remove all selected files?"
         ):
-            for tile in self.file_tiles:
-                tile.destroy()
+            for frame in self.file_tiles:
+                frame.destroy()
             self.selected_files.clear()
             self.file_tiles.clear()
-            self.status_label.config(text="All files cleared", fg="gray")
+            self.status_label.config(text="No files selected", fg="gray")
+            self.merge_button.pack_forget()
+
+    def start_merge(self):
+        from core.merger import merge
+        import shutil
+        import os
+        from tkinter import filedialog, messagebox
+
+        TEMPLATE_FILENAME = "Annual ULC Template - CAN,ULC-S536-19 v8.xlsx"
+        template_subfolder = (
+            r"Cantec Fire Alarms\Cantec Office - "
+            r"Documents\Cantec\Operations\Templates\Report Templates\Log Templates"
+        )
+        user_profile = os.environ.get("USERPROFILE")
+        TEMPLATE_PATH = os.path.join(
+            user_profile, template_subfolder, TEMPLATE_FILENAME
+        )
+
+        if not os.path.exists(TEMPLATE_PATH):
+            messagebox.showerror(
+                "Template Missing", f"Template not found:\n{TEMPLATE_PATH}"
+            )
+            return
+
+        if not self.selected_files:
+            messagebox.showwarning("No files", "Please select Excel files to merge.")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files", "*.xlsx")],
+            title="Save Merged Report As",
+        )
+
+        if not save_path:
+            return
+
+        try:
+            shutil.copyfile(TEMPLATE_PATH, save_path)
+        except Exception as e:
+            messagebox.showerror("File Error", f"Could not copy template:\n{e}")
+            return
+
+        try:
+            merge(self.selected_files, save_path)
+
+            messagebox.showinfo("Success", f"Merged file saved to:\n{save_path}")
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not save merged file:\n{e}")
 
 
 def launch_app():
