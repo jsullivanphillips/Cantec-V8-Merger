@@ -17,8 +17,8 @@ def merge(file_paths, output_path):
             handler = get_merge_handler(sheet_name)
             if handler:
                 print(f"Merging sheet: {sheet_name}")
-                ws_list = [
-                    wb.sheets[sheet_name]
+                ws_file_list = [
+                    (wb.sheets[sheet_name], wb.name)
                     for wb in input_wbs
                     if sheet_name in [s.name for s in wb.sheets]
                 ]
@@ -29,7 +29,7 @@ def merge(file_paths, output_path):
                 else:
                     output_ws = output_wb.sheets.add(name=sheet_name)
 
-                handler(ws_list, output_ws)
+                handler(ws_file_list, output_ws)
 
         output_wb.save()
 

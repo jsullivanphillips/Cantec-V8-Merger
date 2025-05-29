@@ -1,11 +1,30 @@
-def merge_20_1_report(ws_list, output_ws):
-    # Add a title or starting label
-    output_ws.range("A1").value = "Merged data from 20.1 | Report"
-    row_offset = 2  # start copying from row 2
+from handlers.handler_base import (
+    merge_cells,
+    merge_checkbox_groups,
+)
 
-    for ws in ws_list:
-        # Copy values from A2:D5 of each input worksheet
-        data = ws.range("A2:D5").value  # returns a 2D list
-        if data:
-            output_ws.range(f"A{row_offset}").value = data
-            row_offset += len(data)
+
+# List of cells/ranges to merge for this sheet
+# These will be copied cell-by-cell, with matching output locations
+MERGE_CELLS = ["F7", "F8", "F9", "F10", "F11", "F12", "D13", "D14", "l25", "K28", "K35"]
+
+MERGE_CHECKBOX_GROUPS = [
+    ["D15", "G15"],
+    ["N17", "R17"],
+    ["N22", "R22"],
+    ["N23", "R23"],
+    ["N24", "R24"],
+    ["N26", "R26"],
+    ["M34", "Q34"],
+]
+
+
+def merge_20_1_report(ws_file_list, output_ws):
+    """
+    ws_file_list: List of tuples (worksheet, filename)
+    output_ws: xlwings sheet where data will be merged
+    """
+    merge_cells(ws_file_list, output_ws, MERGE_CELLS, tech_col_letter="T")
+    merge_checkbox_groups(
+        ws_file_list, output_ws, MERGE_CHECKBOX_GROUPS, tech_col_letter="T"
+    )
