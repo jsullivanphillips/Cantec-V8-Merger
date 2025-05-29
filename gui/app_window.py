@@ -1,19 +1,23 @@
 from tkinterdnd2 import DND_FILES, TkinterDnD
+from ttkbootstrap import Style
+from ttkbootstrap.constants import X
+from ttkbootstrap import ttk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
-import tkinter as tk
 import os
 from utils.file_handling import is_valid_excel_file
 from config.sheet_definitions import REQUIRED_SHEETS
 
 ICON_PATH = os.path.join("assets", "excel_icon.png")
+# ... [unchanged imports from previous version] ...
 
 
 class V8MergerApp(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
+        self.style = Style("cosmo")  # Use a Bootstrap theme like 'flatly'
         self.title("V8 Merger")
-        self.geometry("580x600")
+        self.geometry("600x680")
         self.configure(bg="white")
         self.resizable(False, False)
 
@@ -23,88 +27,85 @@ class V8MergerApp(TkinterDnD.Tk):
         self.create_widgets()
 
     def create_widgets(self):
-        self.instruction_label = tk.Label(
+        # Instruction Label
+        self.instruction_label = ttk.Label(
             self,
             text="Drag and drop V8 Excel inspection files below or click Browse",
-            bg="white",
             font=("Segoe UI", 11, "bold"),
-            fg="#333",
+            bootstyle="dark",
         )
         self.instruction_label.pack(pady=(20, 2))
 
-        self.sub_instruction_label = tk.Label(
+        self.sub_instruction_label = ttk.Label(
             self,
             text="Only V8-format fire inspection files are supported.",
-            bg="white",
             font=("Segoe UI", 9, "italic"),
-            fg="#6c757d",
+            bootstyle="secondary",
         )
         self.sub_instruction_label.pack(pady=(0, 10))
 
-        self.drop_frame = tk.Frame(self, bg="#f8f9fa", bd=2, relief="ridge", height=120)
-        self.drop_frame.pack(padx=20, fill=tk.X)
-        self.drop_frame.pack_propagate(False)
-
-        self.drop_label = tk.Label(
-            self.drop_frame,
-            text="Drop Excel files here",
-            bg="#f8f9fa",
-            font=("Segoe UI", 10, "italic"),
-            fg="#495057",
+        # Drop Zone
+        self.drop_frame = ttk.Frame(
+            self, style="light.TFrame", padding=10, width=500, height=260
         )
-        self.drop_label.pack(expand=True)
+        self.drop_frame.pack_propagate(False)
+        self.drop_frame.pack(padx=20, pady=(0, 10), fill=X)
 
         self.drop_frame.drop_target_register(DND_FILES)
         self.drop_frame.dnd_bind("<<Drop>>", self.handle_drop)
 
-        self.browse_button = tk.Button(
+        self.drop_label = ttk.Label(
+            self.drop_frame,
+            text="Drop Excel files here",
+            font=("Segoe UI", 10, "italic"),
+            bootstyle="secondary",
+        )
+        self.drop_label.pack(pady=(0, 6))
+
+        # File Tiles Container (inside drop zone)
+        self.tiles_container = ttk.Frame(self.drop_frame)
+        self.tiles_container.pack()
+
+        # Browse Button
+        self.browse_button = ttk.Button(
             self,
             text="Browse",
             command=self.browse_files,
-            font=("Segoe UI", 10),
+            bootstyle="primary-outline",
             width=25,
-            bg="#2c7be5",
-            fg="white",
-            relief="raised",
-            bd=2,
         )
-        self.browse_button.pack(pady=(10, 10))
+        self.browse_button.pack(pady=(10, 5))
 
-        self.grid_frame = tk.Frame(self, bg="white")
-        self.grid_frame.pack(padx=20, pady=(10, 5))
-
-        self.status_label = tk.Label(
-            self, text="", bg="white", font=("Segoe UI", 9), fg="gray"
+        # Status label
+        self.status_label = ttk.Label(
+            self, text="", font=("Segoe UI", 9), bootstyle="secondary"
         )
-        self.status_label.pack(pady=5)
+        self.status_label.pack(pady=(5, 10))
 
-        self.merge_button = tk.Button(
-            self,
-            text="Start Merge",
-            command=self.start_merge,
-            font=("Segoe UI", 10),
-            width=25,
-            bg="#38c172",
-            fg="white",
-            relief="raised",
-            bd=2,
-        )
-        self.merge_button.pack(pady=(5, 5))
-        self.merge_button.pack_forget()
+        # Action Buttons Frame
+        self.actions_frame = ttk.Frame(self)
+        self.actions_frame.pack(pady=(10, 20))
 
-        self.clear_button = tk.Button(
-            self,
+        self.clear_button = ttk.Button(
+            self.actions_frame,
             text="Clear All",
             command=self.clear_all_files,
-            font=("Segoe UI", 10),
-            width=25,
-            bg="#6c757d",
-            fg="white",
-            relief="raised",
-            bd=2,
+            bootstyle="secondary-outline",
+            width=20,
         )
-        self.clear_button.pack(pady=(5, 15))
+        self.clear_button.grid(row=0, column=0, padx=10)
 
+        self.merge_button = ttk.Button(
+            self.actions_frame,
+            text="▶ Start Merge",
+            command=self.start_merge,
+            bootstyle="success",
+            width=25,
+        )
+        self.merge_button.grid(row=0, column=1, padx=10)
+        self.merge_button.grid_remove()
+
+        # Load Excel icon
         if os.path.exists(ICON_PATH):
             img = Image.open(ICON_PATH).resize((32, 32))
             self.icon_image = ImageTk.PhotoImage(img)
@@ -126,7 +127,7 @@ class V8MergerApp(TkinterDnD.Tk):
             if cleaned in self.selected_files:
                 self.status_label.config(
                     text=f"File Error: Duplicate file '{os.path.basename(cleaned)}'",
-                    fg="red",
+                    bootstyle="danger",
                 )
                 continue
             elif cleaned.endswith(".xlsx"):
@@ -136,48 +137,45 @@ class V8MergerApp(TkinterDnD.Tk):
                     added_count += 1
                 else:
                     self.status_label.config(
-                        text=f"File Error: Missing required sheets in "
-                        f"{os.path.basename(cleaned)}'",
-                        fg="red",
+                        text=(
+                            f"File Error: Missing required "
+                            f"sheets in {os.path.basename(cleaned)}"
+                        ),
+                        bootstyle="danger",
                     )
             else:
                 self.status_label.config(
-                    text=f"File Error: Not a valid Excel file → "
-                    f"{os.path.basename(cleaned)}",
-                    fg="red",
+                    text=(
+                        f"File Error: Not a valid "
+                        f"Excel file → {os.path.basename(cleaned)}"
+                    ),
+                    bootstyle="danger",
                 )
 
         if added_count > 0:
             self.status_label.config(
-                text=f"{len(self.selected_files)} files selected", fg="gray"
+                text=f"{len(self.selected_files)} files selected", bootstyle="secondary"
             )
-            self.merge_button.pack()
+            self.merge_button.grid()
 
     def add_file_tile(self, filepath):
-        frame = tk.Frame(
-            self.grid_frame, bg="white", bd=1, relief="solid", padx=6, pady=6
-        )
-        frame.pack(side="top", pady=4)
+        frame = ttk.Frame(self.tiles_container, padding=6, style="light.TFrame")
+        frame.pack(pady=4, fill=X)
 
         if self.icon_image:
-            icon = tk.Label(frame, image=self.icon_image, bg="white")
+            icon = ttk.Label(frame, image=self.icon_image)
             icon.image = self.icon_image
             icon.pack(side="left", padx=(0, 10))
 
-        label = tk.Label(
-            frame, text=os.path.basename(filepath), bg="white", font=("Segoe UI", 9)
-        )
+        label = ttk.Label(frame, text=os.path.basename(filepath), font=("Segoe UI", 9))
         label.pack(side="left")
 
-        remove_btn = tk.Button(
+        remove_btn = ttk.Button(
             frame,
-            text="X",
+            text="✕",
             command=lambda: self.remove_file(filepath, frame),
-            font=("Segoe UI", 8),
-            bg="#dc3545",
-            fg="white",
-            relief="flat",
-            padx=5,
+            bootstyle="danger-outline round",
+            width=3,
         )
         remove_btn.pack(side="right", padx=5)
 
@@ -188,10 +186,10 @@ class V8MergerApp(TkinterDnD.Tk):
             self.selected_files.remove(filepath)
             frame.destroy()
             self.status_label.config(
-                text=f"{len(self.selected_files)} files selected", fg="gray"
+                text=f"{len(self.selected_files)} files selected", bootstyle="secondary"
             )
         if not self.selected_files:
-            self.merge_button.pack_forget()
+            self.merge_button.grid_remove()
 
     def clear_all_files(self):
         if messagebox.askyesno(
@@ -201,14 +199,12 @@ class V8MergerApp(TkinterDnD.Tk):
                 frame.destroy()
             self.selected_files.clear()
             self.file_tiles.clear()
-            self.status_label.config(text="No files selected", fg="gray")
-            self.merge_button.pack_forget()
+            self.status_label.config(text="No files selected", bootstyle="secondary")
+            self.merge_button.grid_remove()
 
     def start_merge(self):
         from core.merger import merge
         import shutil
-        import os
-        from tkinter import filedialog, messagebox
 
         TEMPLATE_FILENAME = "Annual ULC Template - CAN,ULC-S536-19 v8.xlsx"
         template_subfolder = (
@@ -247,7 +243,6 @@ class V8MergerApp(TkinterDnD.Tk):
 
         try:
             merge(self.selected_files, save_path)
-
             messagebox.showinfo("Success", f"Merged file saved to:\n{save_path}")
             self.destroy()
         except Exception as e:
