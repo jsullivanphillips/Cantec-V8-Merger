@@ -2,6 +2,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 from ttkbootstrap import Style
 from ttkbootstrap.constants import X
 from ttkbootstrap import ttk
+import tkinter as tk
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import os
@@ -17,7 +18,7 @@ class V8MergerApp(TkinterDnD.Tk):
         super().__init__()
         self.style = Style("cosmo")  # Use a Bootstrap theme like 'flatly'
         self.title("V8 Merger")
-        self.geometry("600x680")
+        self.geometry("600x580")
         self.configure(bg="white")
         self.resizable(False, False)
 
@@ -105,12 +106,28 @@ class V8MergerApp(TkinterDnD.Tk):
         self.merge_button.grid(row=0, column=1, padx=10)
         self.merge_button.grid_remove()
 
+        self.progress_var = tk.DoubleVar()
+        self.progress_label = ttk.Label(self, text="Ready")
+
+        self.progress_bar = ttk.Progressbar(
+            self,
+            variable=self.progress_var,
+            maximum=100,
+            mode="determinate",
+            bootstyle="primary",
+        )
+
         # Load Excel icon
         if os.path.exists(ICON_PATH):
             img = Image.open(ICON_PATH).resize((32, 32))
             self.icon_image = ImageTk.PhotoImage(img)
         else:
             self.icon_image = None
+
+    def update_progress(self, percentage, message):
+        self.progress_var.set(percentage)
+        self.progress_label.config(text=message)
+        self.update_idletasks()  # Force immediate update
 
     def browse_files(self):
         files = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx")])
@@ -242,9 +259,33 @@ class V8MergerApp(TkinterDnD.Tk):
             return
 
         try:
-            merge(self.selected_files, save_path)
-            messagebox.showinfo("Success", f"Merged file saved to:\n{save_path}")
-            self.destroy()
+            # Show the progress bar and label
+            self.progress_label.pack(side="bottom", fill="x", padx=20, pady=5)
+            self.progress_bar.pack(side="bottom", fill="x", padx=10)
+            self.progress_var.set(0)
+            self.progress_label.config(text="Opening template...")
+            self.update_idletasks()
+            conflicts = merge(
+                self.selected_files, save_path, progress_callback=self.update_progress
+            )
+            self.progress_var.set(100)
+            # self.progress_bar.configure(bootstyle="success")
+            self.progress_label.config(text="✅ Merge complete!")
+            self.update_idletasks()
+            unique_conflicts = sorted(set(conflicts))
+            conflict_summary = (
+                "\n".join(unique_conflicts)
+                if unique_conflicts
+                else "No conflicts found!"
+            )
+
+            messagebox.showinfo(
+                "Merge Complete",
+                f"✅ Merge complete!\n\nConflict Summary:\n{conflict_summary}",
+            )
+
+            # Auto-close after 1 second (1000ms)
+            self.after(50, self.destroy)
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save merged file:\n{e}")
 

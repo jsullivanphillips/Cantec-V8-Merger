@@ -1,6 +1,8 @@
 from typing import List, Tuple
 import re
 
+merge_conflict_log = []
+
 
 def get_cell_format_signature(cell) -> Tuple:
     """Returns a simplified signature of a cell's format."""
@@ -221,6 +223,13 @@ def add_conflict_comment(
         return
 
     # Replace comment
+    try:
+        if output_ws:
+            clean_address = cell.address.replace("$", "")
+            merge_conflict_log.append(f"{output_ws.name}, Cell {clean_address}")
+    except Exception as e:
+        print(f"⚠️ Failed to log conflict at {cell.address}: {e}")
+
     try:
         if cell.api.Comment:
             cell.api.Comment.Delete()
