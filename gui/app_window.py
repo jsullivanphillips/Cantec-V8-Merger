@@ -269,7 +269,7 @@ class V8MergerApp(TkinterDnD.Tk):
                 self.selected_files, save_path, progress_callback=self.update_progress
             )
             self.progress_var.set(100)
-            # self.progress_bar.configure(bootstyle="success")
+            self.progress_bar.configure(bootstyle="success")
             self.progress_label.config(text="✅ Merge complete!")
             self.update_idletasks()
             unique_conflicts = sorted(set(conflicts))
