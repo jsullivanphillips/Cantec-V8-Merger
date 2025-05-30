@@ -1,5 +1,8 @@
 from handlers import (
     sheet_20_1,
+    sheet_20_3,
+    sheet_21,
+    sheet_22_1,
     # Add other sheet handler modules as needed
 )
 
@@ -43,6 +46,9 @@ REQUIRED_SHEETS = [
 # Maps sheet names to their merge handler functions
 SHEET_MERGE_HANDLERS = {
     "20.1 | Report": sheet_20_1.merge_20_1_report,
+    "20.3 | Recommendations": sheet_20_3.merge_20_3_recommendations,
+    "21 | Documentation": sheet_21.merge_21_documentation,
+    "22.1 | CU or Transp Insp": sheet_22_1.merge_22_1_CU,
     # Add more mappings as you implement them
 }
 

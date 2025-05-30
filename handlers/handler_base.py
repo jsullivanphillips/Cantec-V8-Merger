@@ -1,18 +1,62 @@
 from typing import List, Tuple
 import re
 
+from math import sqrt
+
 merge_conflict_log = []
 
 
+NAMED_COLORS = {
+    "Red": (255, 0, 0),
+    "Excel Red": (192, 80, 77),
+    "Green": (0, 255, 0),
+    "Dark Green": (0, 128, 0),
+    "Yellow": (255, 255, 0),
+}
+
+
+def int_to_rgb(color_int):
+    if not isinstance(color_int, int):
+        return None
+    b = color_int // 65536
+    g = (color_int % 65536) // 256
+    r = color_int % 256
+    return (r, g, b)
+
+
+def closest_named_color(rgb):
+    if rgb is None:
+        return "No fill"
+
+    best_match = "Unknown"
+    min_dist = float("inf")
+
+    for name, std_rgb in NAMED_COLORS.items():
+        if std_rgb is None:
+            continue
+        dist = sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(rgb, std_rgb)))
+        if dist < min_dist:
+            min_dist = dist
+            best_match = name
+
+    print(f"🎨 Color match for RGB {rgb} → {best_match}")
+    return best_match
+
+
 def get_cell_format_signature(cell) -> Tuple:
-    """Returns a simplified signature of a cell's format."""
     bold = cell.api.Font.Bold
     font_rgb = cell.api.Font.Color
     fill_rgb = cell.api.Interior.Color
 
-    # Normalize fill: treat None, white, or default fills the same
-    if fill_rgb in (None, 0xFFFFFF, -4142):  # -4142 is xlNone
+    # Normalize "no fill"
+    if fill_rgb in (None, 0xFFFFFF, -4142):
         fill_rgb = "NO_FILL"
+    else:
+        try:
+            fill_rgb = int(fill_rgb)
+        except Exception as e:
+            print(f"Could not parse rgb as int! {e}")
+            fill_rgb = "NO_FILL"
 
     return (bold, font_rgb, fill_rgb)
 
@@ -72,16 +116,38 @@ def merge_checkbox_groups(
                     output_ws, row_index, filename, tech_col_letter
                 )
         else:
-            # ❌ Conflict — multiple different boxes selected in the same group
+            # ❌ Conflict — multiple checkboxes selected by different techs
+
+            # Assign semantic labels: YES, NO, N/A (left to right)
+            labels = ["YES", "NO", "N/A"][: len(group)]
+            addr_to_label = dict(zip(group, labels))
+
+            # Build unified conflict data
+            conflict_data = []
+            for addr, val, filename, sig in true_cells:
+                label = addr_to_label.get(addr, "UNKNOWN")
+                tech = clean_filename(filename)
+                conflict_data.append((label, tech))
+
+            # Build shared comment
+            comment_text = "[Conflict]\n" + "\n".join(
+                f"{label}: {tech}" for label, tech in sorted(conflict_data)
+            )
+
+            # Apply comment and highlight to all checked cells
             for addr, val, filename, sig in true_cells:
                 cell = output_ws.range(addr)
                 apply_conflict_highlight(cell)
-                add_conflict_comment(
-                    cell,
-                    [(entry[2], entry[1], entry[3]) for entry in true_cells],
-                    output_ws=output_ws,
-                    tech_col_letter=tech_col_letter,
-                )
+                try:
+                    if cell.api.Comment:
+                        cell.api.Comment.Delete()
+                    cell.api.AddComment(comment_text)
+                except Exception as e:
+                    print(f"❌ Failed to write comment to {addr}: {e}")
+
+                # Log conflict
+                if output_ws:
+                    merge_conflict_log.append(output_ws.name)
 
 
 def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None):
@@ -93,7 +159,10 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
     for cell_address in merge_cells_list:
         output_cell = output_ws.range(cell_address)
         row_index = output_cell.row
-        recorded = None
+        conflicts = []
+        winner_value = None
+        winner_fmt = None
+        winner_filename = None
 
         for ws, filename in ws_file_list:
             input_cell = ws.range(cell_address)
@@ -101,11 +170,13 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
             if not is_meaningful_value(input_cell.value):
                 continue
 
-            if recorded is None:
-                # First meaningful value — accept and write
-                output_cell.value = input_cell.value
+            input_val = input_cell.value
+            input_fmt = get_cell_format_signature(input_cell)
 
-                # Optional formatting (if not using safe_transfer_formatting yet)
+            if winner_value is None:
+                # First valid input
+                output_cell.value = input_val
+
                 try:
                     output_cell.api.Font.Bold = input_cell.api.Font.Bold
                     output_cell.api.Font.Color = input_cell.api.Font.Color
@@ -115,11 +186,9 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
                 except Exception as e:
                     print(f"⚠️ Formatting error at {cell_address}: {e}")
 
-                recorded = (
-                    input_cell.value,
-                    get_cell_format_signature(input_cell),
-                    filename,
-                )
+                winner_value = input_val
+                winner_fmt = input_fmt
+                winner_filename = filename
 
                 if insert_or_fill_technician_column:
                     insert_or_fill_technician_column(
@@ -127,44 +196,40 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
                     )
 
             else:
-                # Check for conflicts
-                if not compare_cells(output_cell, input_cell):
-                    apply_conflict_highlight(output_cell)
-                    conflicts = [
-                        ("Original", recorded[0], recorded[1]),
-                        (
-                            filename,
-                            input_cell.value,
-                            get_cell_format_signature(input_cell),
-                        ),
-                    ]
-                    add_conflict_comment(
-                        output_cell,
-                        conflicts,
-                        output_ws=output_ws,
-                        tech_col_letter=tech_col_letter,
-                    )
+                if input_val != winner_value or not formats_equal(
+                    input_fmt, winner_fmt
+                ):
+                    conflicts.append((filename, input_val, input_fmt))
+
+        # Finalize conflict comment if needed
+        if conflicts:
+            apply_conflict_highlight(output_cell)
+            conflicts.insert(
+                0, (winner_filename, winner_value, winner_fmt)
+            )  # prepend original
+            add_conflict_comment(
+                output_cell,
+                conflicts,
+                output_ws=output_ws,
+                tech_col_letter=tech_col_letter,
+            )
 
 
-def compare_cells(cell1, cell2) -> bool:
-    """Returns True if value and formatting match, prints debug info if they don't."""
-    val1 = cell1.value
-    val2 = cell2.value
+def formats_equal(fmt1, fmt2) -> bool:
+    """
+    Returns True if formatting is considered equivalent.
+    Ignores fill conflicts if one side is NO_FILL.
+    Assumes format is a tuple: (bold, font_rgb, fill_rgb)
+    """
+    bold1, font1, fill1 = fmt1
+    bold2, font2, fill2 = fmt2
 
-    fmt1 = get_cell_format_signature(cell1)
-    fmt2 = get_cell_format_signature(cell2)
+    if fill1 == "NO_FILL" or fill2 == "NO_FILL":
+        fill_matches = True
+    else:
+        fill_matches = fill1 == fill2
 
-    if val1 != val2 or fmt1 != fmt2:
-        print(f"⚠️ Cell mismatch at {cell1.address}:")
-        if val1 != val2:
-            print(f"  - Value mismatch: {val1!r} vs {val2!r}")
-        if fmt1 != fmt2:
-            print("  - Format mismatch:")
-            print(f"    - cell1: {format_signature_to_string(fmt1)}")
-            print(f"    - cell2: {format_signature_to_string(fmt2)}")
-        return False
-
-    return True
+    return bold1 == bold2 and font1 == font2 and fill_matches
 
 
 def apply_conflict_highlight(cell):
@@ -211,22 +276,37 @@ def add_conflict_comment(
 
     # Add new entries
     for filename, val, fmt in updated_conflicts:
+        print(f"🧪 DEBUG: fmt[2] for {filename} = {fmt[2]}")  # <--- Add this
         val_str = str(val).strip().strip("'")  # Normalize
         existing_entries.add((clean_filename(filename.strip()), val_str.strip()))
 
-    # Build comment text
-    lines = [f"'{val}' ({filename})" for filename, val in sorted(existing_entries)]
-    if len(existing_entries) > 1:
+    # Decide comment type
+    if len({val for _, val, _ in updated_conflicts}) > 1:
+        # Value conflict
+        lines = [f"'{val}' ({filename})" for filename, val, _ in updated_conflicts]
         comment_text = "[Conflict]\n" + "\n".join(lines)
     else:
-        print("✅ Only one unique value — no comment needed.")
-        return
+        # Format conflict
+        # Filter meaningful fill differences
+        non_empty = [
+            (filename, format_signature_to_string(fmt))
+            for filename, _, fmt in updated_conflicts
+            if format_signature_to_string(fmt).lower() != "no fill"
+        ]
+
+        # If we have at least one fill color, ignore 'no fill' entries
+        final_lines = (
+            [f"{filename}: {desc}" for filename, desc in non_empty]
+            if non_empty
+            else [f"{filename}: No fill" for filename, _, _ in updated_conflicts]
+        )
+
+        comment_text = "[Format Conflict]\n" + "\n".join(final_lines)
 
     # Replace comment
     try:
         if output_ws:
-            clean_address = cell.address.replace("$", "")
-            merge_conflict_log.append(f"{output_ws.name}, Cell {clean_address}")
+            merge_conflict_log.append(output_ws.name)
     except Exception as e:
         print(f"⚠️ Failed to log conflict at {cell.address}: {e}")
 
@@ -251,17 +331,17 @@ def short_format_description(fmt: Tuple) -> str:
 
 
 def format_signature_to_string(fmt: Tuple) -> str:
-    """Formats the format tuple into a human-readable string."""
-    bold = "Bold" if fmt[0] else "Regular"
-    font_rgb = fmt[1]
     fill_rgb = fmt[2]
 
-    if fill_rgb == "NO_FILL":
-        fill_str = "No Fill"
-    else:
-        fill_str = f"FillRGB={fill_rgb}"
+    if fill_rgb in ("NO_FILL", None, 0xFFFFFF, -4142):
+        return "No fill"
 
-    return f"{bold}, FontRGB={font_rgb}, {fill_str}"
+    try:
+        rgb = int_to_rgb(fill_rgb)
+        return f"{closest_named_color(rgb)} fill"
+    except Exception as e:
+        print(f"⚠️ Failed to interpret fill color: {fill_rgb} → {e}")
+        return "Unknown fill"
 
 
 def insert_or_fill_technician_column(
