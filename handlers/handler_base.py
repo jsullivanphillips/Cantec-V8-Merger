@@ -180,15 +180,136 @@ def is_page_meaningful(ws_file_list, cell_refs):
     return False
 
 
-def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None):
+def strip_cells(conflicts_with_cells):
+    return [(filename, val, fmt) for filename, val, fmt, _ in conflicts_with_cells]
+
+
+def merge_cells(
+    ws_file_list,
+    output_ws,
+    merge_cells_list,
+    tech_col_letter=None,
+    special_row_ranges=None,
+):
     """
     Merges cell-by-cell values with conflict checking.
-    Optionally calls on_row_merged(output_ws, row_index, technician_filename)
-    after each row write.
+    Supports override logic for specific rows where value should come from
+    the technician who has a highlight in one of several defined columns.
     """
+
+    def get_special_range(row_index, special_row_ranges):
+        if not special_row_ranges:
+            return None
+        for entry in special_row_ranges:
+            if row_index in entry["rows"]:
+                return entry
+        return None
+
     for cell_address in merge_cells_list:
         output_cell = output_ws.range(cell_address)
         row_index = output_cell.row
+
+        # Special merging logic for highlighted rows
+        special_range = get_special_range(row_index, special_row_ranges)
+        if special_range:
+            value_col = special_range["value_col"]
+            highlight_cols = special_range["highlight_cols"]
+            value_candidates = []
+
+            print(f"\n🔍 Special merge logic triggered for row {row_index}")
+            print(f"    - value_col: {value_col}")
+            print(f"    - highlight_cols: {highlight_cols}")
+
+            for ws, filename in ws_file_list:
+                val_cell = ws.range(f"{value_col}{row_index}")
+                val = val_cell.value
+                print(f"🧪 {filename}: {value_col}{row_index} = {val!r}")
+
+                if not is_meaningful_value(val):
+                    print("⛔ Skipping — not meaningful")
+                    continue
+
+                highlight_match = False
+                for col in highlight_cols:
+                    fill = ws.range(f"{col}{row_index}").api.Interior.Color
+                    print(f"    🎨 Checking {col}{row_index} highlight: {fill}")
+                    if fill not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
+                        highlight_match = True
+                        print(f"    ✅ Highlight match found at {col}{row_index}")
+                        break
+
+                if highlight_match:
+                    fmt = get_cell_format_signature(val_cell)
+                    value_candidates.append((filename, val, fmt, val_cell))
+                    print(f"    🟩 Value added from {filename}")
+                else:
+                    print("⛔ No highlight match — skipping")
+
+            if len(value_candidates) == 1:
+                filename, val, fmt, cell = value_candidates[0]
+
+                # Write value only to the value_col
+                value_output_cell = output_ws.range(f"{value_col}{row_index}")
+                value_output_cell.value = val
+
+                try:
+                    value_output_cell.api.Font.Bold = cell.api.Font.Bold
+                    value_output_cell.api.Font.Color = cell.api.Font.Color
+                except Exception as e:
+                    print(f"⚠️ Font formatting error on row {row_index}: {e}")
+
+                # Find the worksheet that provided the winning value
+                source_ws = None
+                for ws, fn in ws_file_list:
+                    if fn == filename:
+                        source_ws = ws
+                        break
+
+                # Copy fill from each highlight column in source file into output
+                if source_ws:
+                    for col in highlight_cols:
+                        input_cell = source_ws.range(f"{col}{row_index}")
+                        output_cell = output_ws.range(f"{col}{row_index}")
+                        fill_color = input_cell.api.Interior.Color
+                        if fill_color not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
+                            try:
+                                output_cell.api.Interior.Color = fill_color
+                            except Exception as e:
+                                print(
+                                    f"⚠️ Failed to apply highlight color to \
+                                        {col}{row_index}: {e}"
+                                )
+
+                # Also apply the value cell’s fill, if applicable
+                if fmt[2] != "NO_FILL":
+                    try:
+                        value_output_cell.api.Interior.Color = fmt[2]
+                    except Exception as e:
+                        print(
+                            f"⚠️ Fill application error on value cell \
+                                {value_col}{row_index}: {e}"
+                        )
+
+                if insert_or_fill_technician_column:
+                    insert_or_fill_technician_column(
+                        output_ws, row_index, filename, tech_col_letter
+                    )
+
+            elif len(value_candidates) > 1:
+                print(f"⚠️ Conflict — multiple highlighted values at row {row_index}")
+                apply_conflict_highlight(output_cell)
+                add_conflict_comment(
+                    output_cell,
+                    strip_cells(value_candidates),
+                    output_ws,
+                    tech_col_letter,
+                )
+            else:
+                print(f"🟨 No highlighted values found — row {row_index} skipped")
+
+            continue  # Skip default logic for this special row
+
+        # --- Default merging logic below ---
         conflicts = []
         winner_value = None
         winner_fmt = None
@@ -204,12 +325,9 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
             input_val = input_cell.value
             input_fmt = get_cell_format_signature(input_cell)
             fill = input_cell.api.Interior.Color
-
-            # Check if this cell has a non-white, non-default fill
             has_highlight = fill not in (None, 0xFFFFFF, -4142)
 
             if winner_value is None:
-                # First valid input
                 output_cell.value = input_val
 
                 try:
@@ -232,7 +350,6 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
 
             else:
                 if has_highlight and best_fill_color in (None, 0xFFFFFF, -4142):
-                    # Upgrade from plain fill to highlighted one
                     best_fill_color = fill
 
                 if input_val != winner_value or not formats_equal(
@@ -240,19 +357,15 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
                 ):
                     conflicts.append((filename, input_val, input_fmt))
 
-        # Apply final fill after all comparisons
         if best_fill_color not in (None, 0xFFFFFF, -4142):
             try:
                 output_cell.api.Interior.Color = best_fill_color
             except Exception as e:
                 print(f"⚠️ Fill application error at {cell_address}: {e}")
 
-        # Finalize conflict comment if needed
         if conflicts:
             apply_conflict_highlight(output_cell)
-            conflicts.insert(
-                0, (winner_filename, winner_value, winner_fmt)
-            )  # prepend original
+            conflicts.insert(0, (winner_filename, winner_value, winner_fmt))
             add_conflict_comment(
                 output_cell,
                 conflicts,

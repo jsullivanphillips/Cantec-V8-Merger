@@ -5,6 +5,7 @@ from handlers import (
     sheet_22_1,
     sheet_22_2,
     sheet_23_24,
+    sheet_22_5,
     # Add other sheet handler modules as needed
 )
 
@@ -53,6 +54,7 @@ SHEET_MERGE_HANDLERS = {
     "22.1 | CU or Transp Insp": sheet_22_1.merge_22_1_CU,
     "22.2 | CU or Transp Test": sheet_22_2.merge_22_CU_Transp,
     "22.3 + 22.4 | Voice & PS": sheet_23_24.merge_23_24_Voice_PS,
+    "22.5 | Power Supply(s)": sheet_22_5.merge_22_5_PS
     # Add more mappings as you implement them
 }
 
