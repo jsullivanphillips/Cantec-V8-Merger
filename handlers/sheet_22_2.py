@@ -300,8 +300,8 @@ MERGE_CHECKBOX_GROUPS_BY_PAGE = [
 MEANINGFUL_ANCHORS = [
     ["F7", "F8"],  # Page 1
     ["F47", "F48"],  # Page 2
-    ["F87", "A88"],  # Page 3
-    ["F127", "A128"],  # Page 4
+    ["F87", "F88"],  # Page 3
+    ["F127", "F128"],  # Page 4
 ]
 
 
@@ -311,7 +311,7 @@ def merge_22_CU_Transp(ws_file_list, output_ws):
     ):
         anchor_cells = MEANINGFUL_ANCHORS[i]
         if not is_page_meaningful(ws_file_list, anchor_cells):
-            print(f"Page {i+1} is blank — skipping this and all following pages.")
+            print(f"Page {i + 1} is blank — skipping this and all following pages.")
             break
 
         merge_cells(ws_file_list, output_ws, merge_cells_page, tech_col_letter="R")
