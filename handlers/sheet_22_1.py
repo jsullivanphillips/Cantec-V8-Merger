@@ -1,4 +1,4 @@
-from handlers.handler_base import merge_cells, merge_checkbox_groups
+from handlers.handler_base import merge_cells, merge_checkbox_groups, is_page_meaningful
 
 # Placeholder cells to merge (you can update these later)
 MERGE_CELLS = [
@@ -148,14 +148,49 @@ MERGE_CHECKBOX_GROUPS = [
     ["Q208", "S208", "U208"],
 ]
 
+# --- Page Splits ---
 
+MERGE_CELLS_BY_PAGE = [
+    MERGE_CELLS[0:17],  # Page 1
+    MERGE_CELLS[17:34],  # Page 2
+    MERGE_CELLS[34:51],  # Page 3
+    MERGE_CELLS[51:68],  # Page 4
+    MERGE_CELLS[68:],  # Page 5
+]
+
+MERGE_CHECKBOX_GROUPS_BY_PAGE = [
+    MERGE_CHECKBOX_GROUPS[0:9],  # Page 1
+    MERGE_CHECKBOX_GROUPS[9:18],  # Page 2
+    MERGE_CHECKBOX_GROUPS[18:27],  # Page 3
+    MERGE_CHECKBOX_GROUPS[27:36],  # Page 4
+    MERGE_CHECKBOX_GROUPS[36:],  # Page 5
+]
+
+# --- Anchor cells used to detect meaningful pages ---
+MEANINGFUL_ANCHORS = [
+    ["H15", "H16"],  # Page 1
+    ["H58", "H59"],  # Page 2
+    ["H107", "H108"],  # Page 3
+    ["H152", "H153"],  # Page 4
+    ["H197", "H198"],  # Page 5
+]
+
+
+# --- Merging Logic ---
 def merge_22_1_CU(ws_file_list, output_ws):
     """
     Merges the 22.1 | CU or Transp Insp sheet from multiple technician workbooks.
-    Handles cell-by-cell conflicts and exclusive checkbox group conflicts.
-    Technician names are tagged in column 'W'.
+    Skips pages with no content based on anchor checks.
     """
-    merge_cells(ws_file_list, output_ws, MERGE_CELLS, tech_col_letter="W")
-    merge_checkbox_groups(
-        ws_file_list, output_ws, MERGE_CHECKBOX_GROUPS, tech_col_letter="W"
-    )
+    for i, (merge_cells_page, checkbox_groups_page) in enumerate(
+        zip(MERGE_CELLS_BY_PAGE, MERGE_CHECKBOX_GROUPS_BY_PAGE)
+    ):
+        anchor_cells = MEANINGFUL_ANCHORS[i]
+        if not is_page_meaningful(ws_file_list, anchor_cells):
+            print(f"Page {i+1} is blank — skipping this and all following pages.")
+            break
+
+        merge_cells(ws_file_list, output_ws, merge_cells_page, tech_col_letter="W")
+        merge_checkbox_groups(
+            ws_file_list, output_ws, checkbox_groups_page, tech_col_letter="W"
+        )

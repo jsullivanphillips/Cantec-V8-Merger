@@ -75,6 +75,23 @@ def is_meaningful_value(val):
     return True  # For numbers, dates, objects, etc.
 
 
+def is_cell_meaningful(val):
+    """
+    Returns True if the value is meaningful for merge logic:
+    - Not None
+    - Not empty string
+    - Not "0" (string or int) if representing blank formula output
+    """
+    if val is None:
+        return False
+    if isinstance(val, str):
+        val = val.strip()
+        return val not in ("", "0")
+    if isinstance(val, (int, float)):
+        return val != 0
+    return True
+
+
 def merge_checkbox_groups(
     ws_file_list, output_ws, checkbox_groups, tech_col_letter=None
 ):
@@ -150,6 +167,19 @@ def merge_checkbox_groups(
                     merge_conflict_log.append(output_ws.name)
 
 
+def is_page_meaningful(ws_file_list, cell_refs):
+    """
+    Check if any file has a meaningful value in any of the given cell references.
+    If so, the page is considered meaningful.
+    """
+    for ws, _ in ws_file_list:
+        for ref in cell_refs:
+            if is_cell_meaningful(ws.range(ref).value):
+                print(f"{ws.range(ref).value} is meaningful")
+                return True
+    return False
+
+
 def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None):
     """
     Merges cell-by-cell values with conflict checking.
@@ -163,6 +193,7 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
         winner_value = None
         winner_fmt = None
         winner_filename = None
+        best_fill_color = None
 
         for ws, filename in ws_file_list:
             input_cell = ws.range(cell_address)
@@ -172,6 +203,10 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
 
             input_val = input_cell.value
             input_fmt = get_cell_format_signature(input_cell)
+            fill = input_cell.api.Interior.Color
+
+            # Check if this cell has a non-white, non-default fill
+            has_highlight = fill not in (None, 0xFFFFFF, -4142)
 
             if winner_value is None:
                 # First valid input
@@ -180,15 +215,15 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
                 try:
                     output_cell.api.Font.Bold = input_cell.api.Font.Bold
                     output_cell.api.Font.Color = input_cell.api.Font.Color
-                    fill = input_cell.api.Interior.Color
-                    if fill not in (None, 0xFFFFFF, -4142):
-                        output_cell.api.Interior.Color = fill
                 except Exception as e:
-                    print(f"⚠️ Formatting error at {cell_address}: {e}")
+                    print(f"⚠️ Font formatting error at {cell_address}: {e}")
 
                 winner_value = input_val
                 winner_fmt = input_fmt
                 winner_filename = filename
+
+                if has_highlight:
+                    best_fill_color = fill
 
                 if insert_or_fill_technician_column:
                     insert_or_fill_technician_column(
@@ -196,10 +231,21 @@ def merge_cells(ws_file_list, output_ws, merge_cells_list, tech_col_letter=None)
                     )
 
             else:
+                if has_highlight and best_fill_color in (None, 0xFFFFFF, -4142):
+                    # Upgrade from plain fill to highlighted one
+                    best_fill_color = fill
+
                 if input_val != winner_value or not formats_equal(
                     input_fmt, winner_fmt
                 ):
                     conflicts.append((filename, input_val, input_fmt))
+
+        # Apply final fill after all comparisons
+        if best_fill_color not in (None, 0xFFFFFF, -4142):
+            try:
+                output_cell.api.Interior.Color = best_fill_color
+            except Exception as e:
+                print(f"⚠️ Fill application error at {cell_address}: {e}")
 
         # Finalize conflict comment if needed
         if conflicts:

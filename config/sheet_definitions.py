@@ -3,6 +3,7 @@ from handlers import (
     sheet_20_3,
     sheet_21,
     sheet_22_1,
+    sheet_22_2,
     # Add other sheet handler modules as needed
 )
 
@@ -49,6 +50,7 @@ SHEET_MERGE_HANDLERS = {
     "20.3 | Recommendations": sheet_20_3.merge_20_3_recommendations,
     "21 | Documentation": sheet_21.merge_21_documentation,
     "22.1 | CU or Transp Insp": sheet_22_1.merge_22_1_CU,
+    "22.2 | CU or Transp Test": sheet_22_2.merge_22_CU_Transp
     # Add more mappings as you implement them
 }
 
