@@ -3,9 +3,12 @@ from handlers.handler_base import merge_cells, merge_checkbox_groups, is_page_me
 
 MERGE_CELLS = [
     # Page 1
-    "G7",
-    "G8",
-    *[f"A{row}" for row in range(9, 22)],
+    "J6" "G8",
+    "G9",
+    *[f"A{row}" for row in range(10, 23)],
+    "J29",
+    "G31",
+    "G32"
     # Page 2
     "G38",
     "G39",
@@ -108,7 +111,7 @@ MEANINGFUL_ANCHORS = [
 ]
 
 
-def merge_22_6_annun(ws_file_list, output_ws):
+def merge_22_7_seq(ws_file_list, output_ws):
     for i, (merge_cells_page, checkbox_groups_page) in enumerate(
         zip(MERGE_CELLS_BY_PAGE, MERGE_CHECKBOX_GROUPS_BY_PAGE)
     ):

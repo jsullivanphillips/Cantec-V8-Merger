@@ -1,5 +1,4 @@
 from typing import List, Tuple
-import re
 
 from math import sqrt
 
@@ -7,10 +6,10 @@ merge_conflict_log = []
 
 
 NAMED_COLORS = {
-    "Red": (255, 0, 0),
-    "Excel Red": (192, 80, 77),
-    "Green": (0, 255, 0),
-    "Dark Green": (0, 128, 0),
+    "Red 1": (255, 0, 0),
+    "Red 2": (192, 80, 77),
+    "Green 1": (0, 255, 0),
+    "Green 2": (0, 128, 0),
     "Yellow": (255, 255, 0),
 }
 
@@ -184,23 +183,26 @@ def strip_cells(conflicts_with_cells):
 
 
 def merge_cells(
-    ws_file_list,
+    ws_file_list: List[Tuple],
     output_ws,
-    merge_cells_list,
-    tech_col_letter=None,
-    special_row_ranges=None,
+    merge_cells_list: List[str],
+    tech_col_letter: str = None,
+    special_row_ranges: List[dict] = None,
 ):
     """
     Merges cell-by-cell values with conflict checking.
     Supports override logic for specific rows where value should come from
     the technician who has a highlight in one of several defined columns.
+
+    Now treats differing highlight colors as conflicts and uses add_conflict_comment
+    to report full conflict details (sheet, value, fill color).
     """
 
-    def get_special_range(row_index, special_row_ranges):
-        if not special_row_ranges:
+    def get_special_range(row_index: int, ranges: List[dict]):
+        if not ranges:
             return None
-        for entry in special_row_ranges:
-            if row_index in entry["rows"]:
+        for entry in ranges:
+            if row_index in entry.get("rows", []):
                 return entry
         return None
 
@@ -208,149 +210,139 @@ def merge_cells(
         output_cell = output_ws.range(cell_address)
         row_index = output_cell.row
 
-        # Special merging logic for highlighted rows
-        special_range = get_special_range(row_index, special_row_ranges)
-        if special_range:
-            value_col = special_range["value_col"]
-            highlight_cols = special_range["highlight_cols"]
-            value_candidates = []
+        # --- Special merging logic for highlighted rows ---
+        special = get_special_range(row_index, special_row_ranges)
+        if special:
+            value_col = special["value_col"]
+            highlight_cols = special["highlight_cols"]
+            candidates: List[Tuple[str, any, Tuple, any]] = []
 
             for ws, filename in ws_file_list:
                 val_cell = ws.range(f"{value_col}{row_index}")
                 val = val_cell.value
-
                 if not is_meaningful_value(val):
                     continue
 
-                highlight_match = False
+                # detect any highlight in the row
+                found_fill = None
                 for col in highlight_cols:
                     fill = ws.range(f"{col}{row_index}").api.Interior.Color
                     if fill not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
-                        highlight_match = True
+                        found_fill = fill
                         break
+                if found_fill is None:
+                    continue
 
-                if highlight_match:
-                    fmt = get_cell_format_signature(val_cell)
-                    value_candidates.append((filename, val, fmt, val_cell))
+                fmt = get_cell_format_signature(val_cell)
+                # prefer explicit fill from cell format if set
+                fill_color = fmt[2] if fmt[2] != "NO_FILL" else found_fill
+                candidates.append((filename, val, fmt, fill_color))
 
-            if len(value_candidates) == 1:
-                filename, val, fmt, cell = value_candidates[0]
-
-                # Write value only to the value_col
-                value_output_cell = output_ws.range(f"{value_col}{row_index}")
-                value_output_cell.value = val
-
+            # exactly one highlighted candidate
+            if len(candidates) == 1:
+                fn, val, fmt, fill = candidates[0]
+                out_val_cell = output_ws.range(f"{value_col}{row_index}")
+                out_val_cell.value = val
+                # copy font
                 try:
-                    value_output_cell.api.Font.Bold = cell.api.Font.Bold
-                    value_output_cell.api.Font.Color = cell.api.Font.Color
+                    out_val_cell.api.Font.Bold = val_cell.api.Font.Bold
+                    out_val_cell.api.Font.Color = val_cell.api.Font.Color
                 except Exception as e:
-                    print(f"⚠️ Font formatting error on row {row_index}: {e}")
-
-                # Find the worksheet that provided the winning value
-                source_ws = None
-                for ws, fn in ws_file_list:
-                    if fn == filename:
-                        source_ws = ws
-                        break
-
-                # Copy fill from each highlight column in source file into output
+                    print(f"⚠️ Font error on row {row_index}: {e}")
+                # copy highlight cells
+                source_ws = next((w for w, f in ws_file_list if f == fn), None)
                 if source_ws:
                     for col in highlight_cols:
-                        input_cell = source_ws.range(f"{col}{row_index}")
-                        output_cell = output_ws.range(f"{col}{row_index}")
-                        fill_color = input_cell.api.Interior.Color
-                        if fill_color not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
-                            try:
-                                output_cell.api.Interior.Color = fill_color
-                            except Exception as e:
-                                print(
-                                    f"⚠️ Failed to apply highlight color to \
-                                        {col}{row_index}: {e}"
-                                )
-
-                # Also apply the value cell’s fill, if applicable
-                if fmt[2] != "NO_FILL":
+                        inp = source_ws.range(f"{col}{row_index}")
+                        out = output_ws.range(f"{col}{row_index}")
+                        try:
+                            out.api.Interior.Color = inp.api.Interior.Color
+                        except Exception as e:
+                            print(f"⚠️ Fill copy error {col}{row_index}: {e}")
+                # apply cell fill
+                if fill not in (None, 0xFFFFFF, -4142):
                     try:
-                        value_output_cell.api.Interior.Color = fmt[2]
+                        out_val_cell.api.Interior.Color = fill
                     except Exception as e:
-                        print(
-                            f"⚠️ Fill application error on value cell \
-                                {value_col}{row_index}: {e}"
-                        )
-
+                        print(f"⚠️ Fill apply error on {value_col}{row_index}: {e}")
+                # technician column
                 if insert_or_fill_technician_column:
                     insert_or_fill_technician_column(
-                        output_ws, row_index, filename, tech_col_letter
+                        output_ws, row_index, fn, tech_col_letter
                     )
 
-            elif len(value_candidates) > 1:
+            # conflict among multiple highlights
+            elif len(candidates) > 1:
                 apply_conflict_highlight(output_cell)
+                # build 4-tuples for comment
+                comment_entries = [
+                    (fn, val, fmt, fill) for fn, val, fmt, fill in candidates
+                ]
                 add_conflict_comment(
                     output_cell,
-                    strip_cells(value_candidates),
-                    output_ws,
-                    tech_col_letter,
+                    comment_entries,
+                    output_ws=output_ws,
+                    tech_col_letter=tech_col_letter,
                 )
-
-            continue  # Skip default logic for this special row
+            continue  # skip default logic for this row
 
         # --- Default merging logic below ---
-        conflicts = []
+        conflicts: List[Tuple[str, any, Tuple, any]] = []
         winner_value = None
         winner_fmt = None
         winner_filename = None
         best_fill_color = None
 
         for ws, filename in ws_file_list:
-            input_cell = ws.range(cell_address)
-
-            if not is_meaningful_value(input_cell.value):
+            cell = ws.range(cell_address)
+            val = cell.value
+            if not is_meaningful_value(val):
                 continue
-
-            input_val = input_cell.value
-            input_fmt = get_cell_format_signature(input_cell)
-            fill = input_cell.api.Interior.Color
-            has_highlight = fill not in (None, 0xFFFFFF, -4142)
+            fmt = get_cell_format_signature(cell)
+            fill = cell.api.Interior.Color
+            has_hi = fill not in (None, 0xFFFFFF, -4142)
 
             if winner_value is None:
-                output_cell.value = input_val
-
+                # adopt first meaningful value
+                output_cell.value = val
                 try:
-                    output_cell.api.Font.Bold = input_cell.api.Font.Bold
-                    output_cell.api.Font.Color = input_cell.api.Font.Color
+                    output_cell.api.Font.Bold = cell.api.Font.Bold
+                    output_cell.api.Font.Color = cell.api.Font.Color
                 except Exception as e:
-                    print(f"⚠️ Font formatting error at {cell_address}: {e}")
-
-                winner_value = input_val
-                winner_fmt = input_fmt
+                    print(f"⚠️ Font error at {cell_address}: {e}")
+                winner_value = val
+                winner_fmt = fmt
                 winner_filename = filename
-
-                if has_highlight:
+                if has_hi:
                     best_fill_color = fill
-
                 if insert_or_fill_technician_column:
                     insert_or_fill_technician_column(
                         output_ws, row_index, filename, tech_col_letter
                     )
-
             else:
-                if has_highlight and best_fill_color in (None, 0xFFFFFF, -4142):
-                    best_fill_color = fill
+                # value or format conflict
+                if val != winner_value or not formats_equal(fmt, winner_fmt):
+                    conflicts.append((filename, val, fmt, fill))
+                # highlight color conflict
+                if has_hi:
+                    if best_fill_color in (None, 0xFFFFFF, -4142):
+                        best_fill_color = fill
+                    elif fill != best_fill_color:
+                        conflicts.append((filename, val, fmt, fill))
 
-                if input_val != winner_value or not formats_equal(
-                    input_fmt, winner_fmt
-                ):
-                    conflicts.append((filename, input_val, input_fmt))
-
+        # apply best fill
         if best_fill_color not in (None, 0xFFFFFF, -4142):
             try:
                 output_cell.api.Interior.Color = best_fill_color
             except Exception as e:
-                print(f"⚠️ Fill application error at {cell_address}: {e}")
+                print(f"⚠️ Fill error at {cell_address}: {e}")
 
         if conflicts:
+            # prepend original
+            conflicts.insert(
+                0, (winner_filename, winner_value, winner_fmt, best_fill_color)
+            )
             apply_conflict_highlight(output_cell)
-            conflicts.insert(0, (winner_filename, winner_value, winner_fmt))
             add_conflict_comment(
                 output_cell,
                 conflicts,
@@ -383,81 +375,85 @@ def apply_conflict_highlight(cell):
 
 
 def add_conflict_comment(
-    cell, conflicts: List[Tuple[str, any, Tuple]], output_ws=None, tech_col_letter=None
+    cell,
+    conflicts: List[Tuple[str, any, Tuple, any]],
+    output_ws=None,
+    tech_col_letter=None,
 ):
     """
-    Adds a readable comment showing only meaningful differences.
-    Merges with any existing conflicts already on the cell.
+    Adds a readable comment showing only the conflicting parts of value or fill.
+    Each comment begins with [Conflict] and lists only the attributes that differ.
     """
-
-    if len(conflicts) < 1:
+    # No conflicts -> nothing to do
+    if not conflicts:
         return
 
-    # Try resolving "Original" to actual filename
-    row_index = cell.row
-    original_filename = "Original"
+    # Resolve "Original" to actual filename from technician column if available
+    row_idx = cell.row
+    orig_name = "Original"
     if output_ws and tech_col_letter:
-        tech_cell = output_ws.range(f"{tech_col_letter}{row_index}")
-        if tech_cell.value:
-            original_filename = tech_cell.value
+        tech_val = output_ws.range(f"{tech_col_letter}{row_idx}").value
+        if tech_val:
+            orig_name = tech_val
 
-    # Update "Original" label if needed
-    updated_conflicts = []
-    for filename, val, fmt in conflicts:
-        source = clean_filename(
-            original_filename if filename == "Original" else filename
-        )
-        updated_conflicts.append((source, val, fmt))
+    # Normalize entries to (sheet, value_str, fill_name)
+    entries: List[Tuple[str, str, str]] = []
+    for entry in conflicts:
+        if len(entry) == 4:
+            fn, val, fmt, fill = entry
+        else:
+            fn, val, fmt = entry
+            fill = None
+        name = clean_filename(orig_name if fn == "Original" else fn)
+        val_str = str(val).strip()
+        # Convert fill integer to rgb tuple (Excel is BGR)
+        if fill in (None, 0xFFFFFF, -4142):
+            rgb = None
+        else:
+            b = int(fill) & 0xFF
+            g = (int(fill) >> 8) & 0xFF
+            r = (int(fill) >> 16) & 0xFF
+            rgb = (r, g, b)
+        fill_name = closest_named_color(rgb)
+        entries.append((name, val_str, fill_name))
 
-    # Load existing comment entries if any
-    existing_entries = set()
-    if cell.api.Comment:
-        comment_text = cell.api.Comment.Text()
-        match_lines = re.findall(r"'(.*?)' \((.*?)\)", comment_text)
-        for val_str, filename in match_lines:
-            existing_entries.add((filename.strip(), val_str.strip()))
+    # Determine which attribute is actually in conflict
+    distinct_vals = {v for _, v, _ in entries}
+    distinct_fills = {f for _, _, f in entries}
 
-    # Add new entries
-    for filename, val, fmt in updated_conflicts:
-        val_str = str(val).strip().strip("'")  # Normalize
-        existing_entries.add((clean_filename(filename.strip()), val_str.strip()))
-
-    # Decide comment type
-    if len({val for _, val, _ in updated_conflicts}) > 1:
+    lines: List[str] = []
+    if len(distinct_vals) > 1:
         # Value conflict
-        lines = [f"'{val}' ({filename})" for filename, val, _ in updated_conflicts]
-        comment_text = "[Conflict]\n" + "\n".join(lines)
+        for name, v, _ in entries:
+            lines.append(f"{name}: '{v}'")
+    elif len(distinct_fills) > 1:
+        # Fill (color) conflict
+        for name, _, f in entries:
+            lines.append(f"{name}: fill={f}")
     else:
-        # Format conflict
-        # Filter meaningful fill differences
-        non_empty = [
-            (filename, format_signature_to_string(fmt))
-            for filename, _, fmt in updated_conflicts
-            if format_signature_to_string(fmt).lower() != "no fill"
-        ]
+        # Fallback: show both
+        for name, v, f in entries:
+            lines.append(f"{name}: '{v}' | fill={f}")
 
-        # If we have at least one fill color, ignore 'no fill' entries
-        final_lines = (
-            [f"{filename}: {desc}" for filename, desc in non_empty]
-            if non_empty
-            else [f"{filename}: No fill" for filename, _, _ in updated_conflicts]
-        )
+    comment_text = "[Conflict]\n" + "\n".join(lines)
 
-        comment_text = "[Format Conflict]\n" + "\n".join(final_lines)
-
-    # Replace comment
+    # Log conflict
     try:
         if output_ws:
             merge_conflict_log.append(output_ws.name)
-    except Exception as e:
-        print(f"⚠️ Failed to log conflict at {cell.address}: {e}")
+    except Exception:
+        pass
 
+    # Replace existing comment on the cell
     try:
-        if cell.api.Comment:
-            cell.api.Comment.Delete()
+        try:
+            cell.api.ClearComments()
+        except Exception:
+            if getattr(cell.api, "Comment", None):
+                cell.api.Comment.Delete()
         cell.api.AddComment(comment_text)
     except Exception as e:
-        print(f"❌ Failed to add comment: {e}")
+        print(f"❌ Failed to add conflict comment on {cell.address}: {e}")
 
 
 def clean_filename(name: str) -> str:
