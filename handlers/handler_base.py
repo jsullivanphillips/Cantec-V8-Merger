@@ -4,58 +4,51 @@ from math import sqrt
 
 merge_conflict_log = []
 
-
 NAMED_COLORS = {
-    "Red 1": (255, 0, 0),
-    "Red 2": (192, 80, 77),
-    "Green 1": (0, 255, 0),
-    "Green 2": (0, 128, 0),
-    "Yellow": (255, 255, 0),
+    "Red": [(255, 0, 0), (192, 80, 77), (218, 150, 148)],
+    "Green": [(0, 255, 0), (0, 128, 0), (196, 215, 155), (0, 176, 80), (146, 208, 80)],
+    "Yellow": [(255, 255, 0)],
 }
 
 
-def int_to_rgb(color_int):
-    if not isinstance(color_int, int):
-        return None
-    b = color_int // 65536
-    g = (color_int % 65536) // 256
-    r = color_int % 256
-    return (r, g, b)
-
-
-def closest_named_color(rgb):
+def closest_named_color(rgb, threshold=90):
     if rgb is None:
         return "No fill"
 
     best_match = "Unknown"
     min_dist = float("inf")
 
-    for name, std_rgb in NAMED_COLORS.items():
-        if std_rgb is None:
-            continue
-        dist = sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(rgb, std_rgb)))
-        if dist < min_dist:
-            min_dist = dist
-            best_match = name
+    for name, color_list in NAMED_COLORS.items():
+        for std_rgb in color_list:
+            dist = sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(rgb, std_rgb)))
+            if dist < min_dist:
+                min_dist = dist
+                best_match = name
 
-    print(f"🎨 Color match for RGB {rgb} → {best_match}")
+    if min_dist > threshold:
+        return f"RGB{rgb}"  # fallback to raw RGB if too far from any label
     return best_match
+
+
+def int_to_rgb(color_int):
+    """Converts Excel BGR color int into RGB tuple."""
+    if not isinstance(color_int, int):
+        return None
+    r = color_int & 0xFF
+    g = (color_int >> 8) & 0xFF
+    b = (color_int >> 16) & 0xFF
+    return (r, g, b)
 
 
 def get_cell_format_signature(cell) -> Tuple:
     bold = cell.api.Font.Bold
     font_rgb = cell.api.Font.Color
-    fill_rgb = cell.api.Interior.Color
-
-    # Normalize "no fill"
-    if fill_rgb in (None, 0xFFFFFF, -4142):
-        fill_rgb = "NO_FILL"
-    else:
-        try:
-            fill_rgb = int(fill_rgb)
-        except Exception as e:
-            print(f"Could not parse rgb as int! {e}")
-            fill_rgb = "NO_FILL"
+    try:
+        raw_fill = cell.api.DisplayFormat.Interior.Color
+    except Exception:
+        raw_fill = cell.api.Interior.Color  # fallback
+    norm = normalize_fill(raw_fill)
+    fill_rgb = norm if norm is not None else "NO_FILL"
 
     return (bold, font_rgb, fill_rgb)
 
@@ -166,6 +159,16 @@ def merge_checkbox_groups(
                     merge_conflict_log.append(output_ws.name)
 
 
+def normalize_fill(fill):
+    if fill in (None, "NO_FILL", 0xFFFFFF, -4142):
+        return None
+    try:
+        return int(fill)
+    except Exception as e:
+        print(f"Failed to normalize fill with error {e}")
+        return None
+
+
 def is_page_meaningful(ws_file_list, cell_refs):
     """
     Check if any file has a meaningful value in any of the given cell references.
@@ -226,16 +229,20 @@ def merge_cells(
                 # detect any highlight in the row
                 found_fill = None
                 for col in highlight_cols:
-                    fill = ws.range(f"{col}{row_index}").api.Interior.Color
-                    if fill not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
-                        found_fill = fill
+                    raw_fill = ws.range(f"{col}{row_index}").api.Interior.Color
+                    norm_fill = normalize_fill(raw_fill)
+                    if norm_fill is not None and norm_fill not in (
+                        0xFFFF00,
+                        65535,
+                    ):  # skip yellow or Excel light yellow
+                        found_fill = norm_fill
                         break
                 if found_fill is None:
                     continue
 
                 fmt = get_cell_format_signature(val_cell)
                 # prefer explicit fill from cell format if set
-                fill_color = fmt[2] if fmt[2] != "NO_FILL" else found_fill
+                fill_color = found_fill
                 candidates.append((filename, val, fmt, fill_color))
 
             # exactly one highlighted candidate
@@ -260,7 +267,8 @@ def merge_cells(
                         except Exception as e:
                             print(f"⚠️ Fill copy error {col}{row_index}: {e}")
                 # apply cell fill
-                if fill not in (None, 0xFFFFFF, -4142):
+                fill = normalize_fill(fill)
+                if fill is not None:
                     try:
                         out_val_cell.api.Interior.Color = fill
                     except Exception as e:
@@ -291,7 +299,9 @@ def merge_cells(
         winner_value = None
         winner_fmt = None
         winner_filename = None
-        best_fill_color = None
+        best_fill_rgb = None  # For display / comparison
+        best_fill_excel = None  # For setting in Excel
+        winner_fill = None
 
         for ws, filename in ws_file_list:
             cell = ws.range(cell_address)
@@ -299,10 +309,17 @@ def merge_cells(
             if not is_meaningful_value(val):
                 continue
             fmt = get_cell_format_signature(cell)
-            fill = cell.api.Interior.Color
-            has_hi = fill not in (None, 0xFFFFFF, -4142)
+            try:
+                raw_fill = cell.api.DisplayFormat.Interior.Color
+            except Exception:
+                raw_fill = cell.api.Interior.Color
 
-            if winner_value is None:
+            norm_fill = normalize_fill(raw_fill)
+            rgb_fill = int_to_rgb(norm_fill)
+            has_hi = rgb_fill is not None
+            print(f"{cell_address} | norm_fill: {norm_fill} | rgb_fill: {rgb_fill}")
+
+            if winner_fill is None:
                 # adopt first meaningful value
                 output_cell.value = val
                 try:
@@ -313,35 +330,47 @@ def merge_cells(
                 winner_value = val
                 winner_fmt = fmt
                 winner_filename = filename
+                winner_fill = norm_fill
+
                 if has_hi:
-                    best_fill_color = fill
+                    best_fill_rgb = rgb_fill
+                    best_fill_excel = norm_fill
+
                 if insert_or_fill_technician_column:
                     insert_or_fill_technician_column(
                         output_ws, row_index, filename, tech_col_letter
                     )
             else:
-                # value or format conflict
-                if val != winner_value or not formats_equal(fmt, winner_fmt):
-                    conflicts.append((filename, val, fmt, fill))
-                # highlight color conflict
-                if has_hi:
-                    if best_fill_color in (None, 0xFFFFFF, -4142):
-                        best_fill_color = fill
-                    elif fill != best_fill_color:
-                        conflicts.append((filename, val, fmt, fill))
+                conflict_entry = (filename, val, fmt, norm_fill)
+                if (
+                    val != winner_value
+                    or not formats_equal(fmt, winner_fmt)
+                    or (has_hi and rgb_fill != best_fill_rgb)
+                ):
+                    if conflict_entry not in conflicts:
+                        conflicts.append(conflict_entry)
 
         # apply best fill
-        if best_fill_color not in (None, 0xFFFFFF, -4142):
+        if best_fill_excel not in (None, 0xFFFFFF, -4142):
             try:
-                output_cell.api.Interior.Color = best_fill_color
+                output_cell.api.Interior.Color = best_fill_excel
             except Exception as e:
                 print(f"⚠️ Fill error at {cell_address}: {e}")
 
         if conflicts:
-            # prepend original
-            conflicts.insert(
-                0, (winner_filename, winner_value, winner_fmt, best_fill_color)
+            # find the original cell and use its actual fill
+            winner_ws = next(
+                (ws for ws, fn in ws_file_list if fn == winner_filename), None
             )
+            if winner_ws:
+                winner_fmt = get_cell_format_signature(winner_ws.range(cell_address))
+                winner_fill = best_fill_excel
+            else:
+                winner_fill = best_fill_excel
+            conflicts.insert(
+                0, (winner_filename, winner_value, winner_fmt, winner_fill)
+            )
+
             apply_conflict_highlight(output_cell)
             add_conflict_comment(
                 output_cell,
@@ -384,11 +413,10 @@ def add_conflict_comment(
     Adds a readable comment showing only the conflicting parts of value or fill.
     Each comment begins with [Conflict] and lists only the attributes that differ.
     """
-    # No conflicts -> nothing to do
     if not conflicts:
         return
 
-    # Resolve "Original" to actual filename from technician column if available
+    # Figure out the "Original" sheet name, if any
     row_idx = cell.row
     orig_name = "Original"
     if output_ws and tech_col_letter:
@@ -396,61 +424,57 @@ def add_conflict_comment(
         if tech_val:
             orig_name = tech_val
 
-    # Normalize entries to (sheet, value_str, fill_name)
+    # Build a list of (sheet, value_str, fill_name)
     entries: List[Tuple[str, str, str]] = []
     for entry in conflicts:
-        if len(entry) == 4:
-            fn, val, fmt, fill = entry
-        else:
-            fn, val, fmt = entry
-            fill = None
+        # unpack the 4-tuple (filename, val, fmt, fill)
+        fn, val, fmt, fill = entry
         name = clean_filename(orig_name if fn == "Original" else fn)
         val_str = str(val).strip()
-        # Convert fill integer to rgb tuple (Excel is BGR)
-        if fill in (None, 0xFFFFFF, -4142):
-            rgb = None
-        else:
-            b = int(fill) & 0xFF
-            g = (int(fill) >> 8) & 0xFF
-            r = (int(fill) >> 16) & 0xFF
-            rgb = (r, g, b)
+
+        rgb = int_to_rgb(normalize_fill(fill))
+
+        # map to the nearest name
         fill_name = closest_named_color(rgb)
         entries.append((name, val_str, fill_name))
 
-    # Determine which attribute is actually in conflict
-    distinct_vals = {v for _, v, _ in entries}
-    distinct_fills = {f for _, _, f in entries}
+    # figure out which attribute changed
+    vals = {v for _, v, _ in entries}
+    fills = {f for _, _, f in entries}
 
     lines: List[str] = []
-    if len(distinct_vals) > 1:
-        # Value conflict
+    if len(vals) > 1:
+        # value conflict
         for name, v, _ in entries:
             lines.append(f"{name}: '{v}'")
-    elif len(distinct_fills) > 1:
-        # Fill (color) conflict
+    elif len(fills) > 1:
+        # fill conflict
         for name, _, f in entries:
             lines.append(f"{name}: fill={f}")
     else:
-        # Fallback: show both
+        # fallback: show both
         for name, v, f in entries:
             lines.append(f"{name}: '{v}' | fill={f}")
 
     comment_text = "[Conflict]\n" + "\n".join(lines)
+    print(f"[DEBUG] {name}: raw_fill={fill}, rgb={rgb}, closest={fill_name}")
 
-    # Log conflict
+    # log and replace any existing comment
     try:
         if output_ws:
             merge_conflict_log.append(output_ws.name)
     except Exception:
         pass
 
-    # Replace existing comment on the cell
     try:
+        # clear old
         try:
             cell.api.ClearComments()
-        except Exception:
+        except Exception as e:
+            print(f"could not clear comment with error {e}. Deleting instead.")
             if getattr(cell.api, "Comment", None):
                 cell.api.Comment.Delete()
+        # add new
         cell.api.AddComment(comment_text)
     except Exception as e:
         print(f"❌ Failed to add conflict comment on {cell.address}: {e}")

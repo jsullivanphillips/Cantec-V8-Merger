@@ -60,7 +60,7 @@ SHEET_MERGE_HANDLERS = {
     "22.5 | Power Supply(s)": sheet_22_5.merge_22_5_PS,
     "23.1 Field Device Legend": sheet_23_1.merge_23_1_field_device,
     "22.6 | Annunciator(s)": sheet_22_6.merge_22_6_annun,
-    "22.7 | Annun & Seq Disp": sheet_22_7.merge_22_7_seq
+    "22.7 | Annun & Seq Disp": sheet_22_7.merge_22_7_seq,
     # Add more mappings as you implement them
 }
 

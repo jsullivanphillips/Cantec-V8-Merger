@@ -3,29 +3,39 @@ from handlers.handler_base import merge_cells, merge_checkbox_groups, is_page_me
 
 MERGE_CELLS = [
     # Page 1
-    "J6" "G8",
+    "J6",
+    "G8",
     "G9",
     *[f"A{row}" for row in range(10, 23)],
     "J29",
     "G31",
-    "G32"
+    "G32",
+    *[f"A{row}" for row in range(33, 37)],
     # Page 2
-    "G38",
-    "G39",
-    *[f"A{row}" for row in range(40, 53)],
+    "G39",  # 8  +31
+    "G40",  # 9  +31
+    *[f"A{row}" for row in range(41, 54)],  # 10→22 +31
+    "G56",  # 31 +31
+    "G57",  # 32 +31
+    *[f"A{row}" for row in range(58, 62)],  # 33→36 +31
     # Page 3
-    "G78",
-    "G79",
-    *[f"A{row}" for row in range(80, 93)],
-    # Page 4
-    "G118",
-    "G119",
-    *[f"A{row}" for row in range(120, 133)],
+    "G64",  # 8  +56
+    "G65",  # 9  +56
+    *[f"A{row}" for row in range(66, 79)],  # 10→22 +56
+    "G81",  # 31 +56
+    "G82",  # 32 +56
+    *[f"A{row}" for row in range(83, 97)],  # 33→36 +56
+]
+
+# --- Anchor cells used to detect meaningful pages ---
+MEANINGFUL_ANCHORS = [
+    ["G8", "G9", "J6", "G31", "G32"],  # Page 1
+    ["G39", "G40", "G56", "G57"],  # Page 2
+    ["G64", "G65", "G81", "G82"],  # Page 3
 ]
 
 MERGE_CHECKBOX_GROUPS = [
     # Page 1
-    ["L9", "N9", "P9"],
     ["L10", "N10", "P10"],
     ["L11", "N11", "P11"],
     ["L12", "N12", "P12"],
@@ -39,8 +49,11 @@ MERGE_CHECKBOX_GROUPS = [
     ["L20", "N20", "P20"],
     ["L21", "N21", "P21"],
     ["L22", "N22", "P22"],
+    ["L33", "N33", "P33"],
+    ["L34", "N34", "P34"],
+    ["L35", "N35", "P35"],
+    ["L36", "N36", "P36"],
     # Page 2
-    ["L40", "N40", "P40"],
     ["L41", "N41", "P41"],
     ["L42", "N42", "P42"],
     ["L43", "N43", "P43"],
@@ -54,60 +67,44 @@ MERGE_CHECKBOX_GROUPS = [
     ["L51", "N51", "P51"],
     ["L52", "N52", "P52"],
     ["L53", "N53", "P53"],
+    ["L58", "N58", "P58"],
+    ["L59", "N59", "P59"],
+    ["L60", "N60", "P60"],
+    ["L61", "N61", "P61"],
     # Page 3
-    ["L80", "N80", "P80"],
-    ["L81", "N81", "P81"],
-    ["L82", "N82", "P82"],
+    ["L66", "N66", "P66"],
+    ["L67", "N67", "P67"],
+    ["L68", "N68", "P68"],
+    ["L69", "N69", "P69"],
+    ["L70", "N70", "P70"],
+    ["L71", "N71", "P71"],
+    ["L72", "N72", "P72"],
+    ["L73", "N73", "P73"],
+    ["L74", "N74", "P74"],
+    ["L75", "N75", "P75"],
+    ["L76", "N76", "P76"],
+    ["L77", "N77", "P77"],
+    ["L78", "N78", "P78"],
     ["L83", "N83", "P83"],
     ["L84", "N84", "P84"],
     ["L85", "N85", "P85"],
     ["L86", "N86", "P86"],
-    ["L87", "N87", "P87"],
-    ["L88", "N88", "P88"],
-    ["L89", "N89", "P89"],
-    ["L90", "N90", "P90"],
-    ["L91", "N91", "P91"],
-    ["L92", "N92", "P92"],
-    ["L93", "N93", "P93"],
-    # Page 4
-    ["L120", "N120", "P120"],
-    ["L121", "N121", "P121"],
-    ["L122", "N122", "P122"],
-    ["L123", "N123", "P123"],
-    ["L124", "N124", "P124"],
-    ["L125", "N125", "P125"],
-    ["L126", "N126", "P126"],
-    ["L127", "N127", "P127"],
-    ["L128", "N128", "P128"],
-    ["L129", "N129", "P129"],
-    ["L130", "N130", "P130"],
-    ["L131", "N131", "P131"],
-    ["L132", "N132", "P132"],
-    ["L133", "N133", "P133"],
 ]
 
 # split MERGE_CELLS into four pages of 15 entries each (2 G-rows + 13 A-rows)
 MERGE_CELLS_BY_PAGE = [
-    MERGE_CELLS[0:15],  # Page 1: G7, G8, A9–A21
-    MERGE_CELLS[15:30],  # Page 2: G38, G39, A40–A52
-    MERGE_CELLS[30:45],  # Page 3: G78, G79, A80–A92
-    MERGE_CELLS[45:60],  # Page 4: G118, G119, A120–A132
+    MERGE_CELLS[0:23],  # Page 1 (23 entries)
+    MERGE_CELLS[23:44],  # Page 2 (21 entries)
+    MERGE_CELLS[44:],  # Page 3 (remaining entries)
 ]
 
-# split MERGE_CHECKBOX_GROUPS into four pages of 14 groups each
 MERGE_CHECKBOX_GROUPS_BY_PAGE = [
-    MERGE_CHECKBOX_GROUPS[0:14],  # Page 1: rows 9–22
-    MERGE_CHECKBOX_GROUPS[14:28],  # Page 2: rows 40–53
-    MERGE_CHECKBOX_GROUPS[28:42],  # Page 3: rows 80–93
-    MERGE_CHECKBOX_GROUPS[42:56],  # Page 4: rows 120–133
-]
-
-# --- Anchor cells used to detect meaningful pages ---
-MEANINGFUL_ANCHORS = [
-    ["G7", "G8", "A9"],  # Page 1
-    ["G38", "G39", "A40"],  # Page 2
-    ["G78", "G79", "A80"],  # Page 3
-    ["G118", "G119", "A120"],  # Page 4
+    # Page 1: rows 10–22 & 33–36 (17 groups)
+    MERGE_CHECKBOX_GROUPS[0:17],
+    # Page 2: rows 41–53 & 58–61 (17 groups)
+    MERGE_CHECKBOX_GROUPS[17:34],
+    # Page 3: rows 66–78 & 83–86 (17 groups)
+    MERGE_CHECKBOX_GROUPS[34:51],
 ]
 
 
