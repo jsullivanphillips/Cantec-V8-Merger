@@ -175,7 +175,6 @@ def is_page_meaningful(ws_file_list, cell_refs):
     for ws, _ in ws_file_list:
         for ref in cell_refs:
             if is_cell_meaningful(ws.range(ref).value):
-                print(f"{ws.range(ref).value} is meaningful")
                 return True
     return False
 
@@ -216,34 +215,23 @@ def merge_cells(
             highlight_cols = special_range["highlight_cols"]
             value_candidates = []
 
-            print(f"\n🔍 Special merge logic triggered for row {row_index}")
-            print(f"    - value_col: {value_col}")
-            print(f"    - highlight_cols: {highlight_cols}")
-
             for ws, filename in ws_file_list:
                 val_cell = ws.range(f"{value_col}{row_index}")
                 val = val_cell.value
-                print(f"🧪 {filename}: {value_col}{row_index} = {val!r}")
 
                 if not is_meaningful_value(val):
-                    print("⛔ Skipping — not meaningful")
                     continue
 
                 highlight_match = False
                 for col in highlight_cols:
                     fill = ws.range(f"{col}{row_index}").api.Interior.Color
-                    print(f"    🎨 Checking {col}{row_index} highlight: {fill}")
                     if fill not in (None, 0xFFFFFF, -4142, 0xFFFF00, 65535):
                         highlight_match = True
-                        print(f"    ✅ Highlight match found at {col}{row_index}")
                         break
 
                 if highlight_match:
                     fmt = get_cell_format_signature(val_cell)
                     value_candidates.append((filename, val, fmt, val_cell))
-                    print(f"    🟩 Value added from {filename}")
-                else:
-                    print("⛔ No highlight match — skipping")
 
             if len(value_candidates) == 1:
                 filename, val, fmt, cell = value_candidates[0]
@@ -296,7 +284,6 @@ def merge_cells(
                     )
 
             elif len(value_candidates) > 1:
-                print(f"⚠️ Conflict — multiple highlighted values at row {row_index}")
                 apply_conflict_highlight(output_cell)
                 add_conflict_comment(
                     output_cell,
@@ -304,8 +291,6 @@ def merge_cells(
                     output_ws,
                     tech_col_letter,
                 )
-            else:
-                print(f"🟨 No highlighted values found — row {row_index} skipped")
 
             continue  # Skip default logic for this special row
 
@@ -404,7 +389,6 @@ def add_conflict_comment(
     Adds a readable comment showing only meaningful differences.
     Merges with any existing conflicts already on the cell.
     """
-    print(f"📝 add_conflict_comment: Starting for cell {cell.address}")
 
     if len(conflicts) < 1:
         return
@@ -435,7 +419,6 @@ def add_conflict_comment(
 
     # Add new entries
     for filename, val, fmt in updated_conflicts:
-        print(f"🧪 DEBUG: fmt[2] for {filename} = {fmt[2]}")  # <--- Add this
         val_str = str(val).strip().strip("'")  # Normalize
         existing_entries.add((clean_filename(filename.strip()), val_str.strip()))
 
@@ -473,7 +456,6 @@ def add_conflict_comment(
         if cell.api.Comment:
             cell.api.Comment.Delete()
         cell.api.AddComment(comment_text)
-        print(f"✅ Updated comment:\n{comment_text}")
     except Exception as e:
         print(f"❌ Failed to add comment: {e}")
 
