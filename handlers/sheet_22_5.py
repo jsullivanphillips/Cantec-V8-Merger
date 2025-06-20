@@ -364,6 +364,11 @@ MEANINGFUL_ANCHORS = [
     ["M201", "K224"],  # Page 5
 ]
 
+
+# Special row is for thinks that require a recorded value (i.e. 27.7 V dc)
+# We check if there is a "meaningful value" where the value should be
+# recorded. Then it checks if anything is highlighted on that row,
+# signifying that this is a new value to be saved in the report.
 SPECIAL_ROW_RANGES = [
     # Page 1
     {"rows": range(17, 23), "value_col": "M", "highlight_cols": ["A", "M"]},
